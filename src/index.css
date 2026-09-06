@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+/* 
+ * Aumento de tamaño de fuente general de texto (1 punto más sobre estándar)
+ * Escala todas las clases relativas de tipografía proporcionalmente
+ */
+:root {
+  font-size: 17px;
+}
+
+body {
+  font-size: 1rem;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
