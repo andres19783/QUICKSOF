@@ -11,7 +11,8 @@ import {
   Clock, 
   DollarSign, 
   X,
-  AlertCircle
+  AlertCircle,
+  Store
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -30,7 +31,9 @@ export const Header: React.FC<HeaderProps> = ({ onOpenCloseShiftModal, onOpenSup
     currentShift,
     isOnlineDb,
     theme,
-    toggleTheme
+    toggleTheme,
+    storeSettings,
+    openStoreSettingsModal
   } = useApp();
 
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -67,7 +70,31 @@ export const Header: React.FC<HeaderProps> = ({ onOpenCloseShiftModal, onOpenSup
         </button>
       </div>
 
-      <div className="flex items-center gap-3 md:gap-5">
+      <div className="flex items-center gap-3 md:gap-4">
+        {/* Puesto de Venta & Logo Config */}
+        <button
+          onClick={openStoreSettingsModal}
+          className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-[#27272A] bg-[#16161A] hover:bg-[#1F1F23] hover:border-emerald-500/40 text-zinc-300 transition-all text-xs cursor-pointer group"
+          title="Configurar Nombre y Logo del Puesto de Venta para Comprobantes y Tickets"
+        >
+          {storeSettings.logoUrl ? (
+            <img
+              src={storeSettings.logoUrl}
+              alt="Logo Puesto"
+              className="w-5 h-5 rounded object-contain bg-white/10"
+              referrerPolicy="no-referrer"
+            />
+          ) : (
+            <Store className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
+          )}
+          <span className="font-semibold text-white max-w-[130px] truncate hidden sm:inline">
+            {storeSettings.name}
+          </span>
+          <span className="text-[9px] uppercase font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+            Puesto
+          </span>
+        </button>
+
         {/* Saldo en Caja */}
         <div className="text-right hidden sm:block">
           <p className="text-[10px] text-zinc-400 uppercase font-bold tracking-wider">Saldo en Caja</p>
@@ -131,7 +158,18 @@ export const Header: React.FC<HeaderProps> = ({ onOpenCloseShiftModal, onOpenSup
                   </button>
                 </div>
 
-                <div className="py-2">
+                <div className="py-2 space-y-1">
+                  <button
+                    onClick={() => {
+                      openStoreSettingsModal();
+                      setShowUserMenu(false);
+                    }}
+                    className="w-full text-left px-3 py-2 rounded-lg flex items-center gap-2 text-zinc-300 hover:bg-zinc-800 transition-colors font-medium"
+                  >
+                    <Store className="w-4 h-4 text-emerald-400" />
+                    <span>Configurar Puesto & Logo</span>
+                  </button>
+
                   <button
                     onClick={() => {
                       logout();

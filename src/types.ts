@@ -230,3 +230,14 @@ export interface Sale {
   status: 'completed' | 'cancelled';
   items: SaleItem[];
 }
+
+export interface StoreSettings {
+  name: string;
+  logoUrl?: string;
+  taxId?: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  ticketHeader?: string;
+  ticketFooter?: string;
+}

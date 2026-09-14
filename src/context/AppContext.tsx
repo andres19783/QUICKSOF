@@ -15,7 +15,8 @@ import {
   Shift,
   FinancialMovement,
   Sale,
-  CartItem
+  CartItem,
+  StoreSettings
 } from '../types';
 import {
   INITIAL_USERS,
@@ -35,6 +36,7 @@ import {
   INITIAL_SUPPLIER_MOVEMENTS
 } from '../services/mockData';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { generateUniqueId, ensureUniqueItems } from '../utils/idUtils';
 
 interface AppContextType {
   // Auth & Roles (Connected to Database)
@@ -60,7 +62,7 @@ interface AppContextType {
 
   // Products
   products: Product[];
-  addProduct: (data: Omit<Product, 'id' | 'updatedAt'>) => void;
+  addProduct: (data: Omit<Product, 'id' | 'updatedAt'> & { id?: string }) => Product;
   updateProduct: (id: string, data: Partial<Product>) => { success: boolean; error?: string };
   deleteProduct: (id: string) => boolean;
 
@@ -68,7 +70,7 @@ interface AppContextType {
   suppliers: Supplier[];
   supplierInvoices: SupplierInvoice[];
   supplierMovements: SupplierMovement[];
-  addSupplier: (data: Omit<Supplier, 'id' | 'createdAt' | 'currentBalance'>) => void;
+  addSupplier: (data: Omit<Supplier, 'id' | 'createdAt' | 'currentBalance'> & { id?: string }) => Supplier;
   updateSupplier: (id: string, data: Partial<Supplier>) => void;
   deleteSupplier: (id: string) => boolean;
   recordSupplierInvoice: (invoice: Omit<SupplierInvoice, 'id'>) => void;
@@ -124,6 +126,13 @@ interface AppContextType {
   isOnlineDb: boolean;
   theme: 'dark' | 'light';
   toggleTheme: () => void;
+
+  // Store Settings (Puesto de Venta & Comprobantes)
+  storeSettings: StoreSettings;
+  updateStoreSettings: (settings: Partial<StoreSettings>) => void;
+  isStoreSettingsModalOpen: boolean;
+  setIsStoreSettingsModalOpen: (open: boolean) => void;
+  openStoreSettingsModal: () => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -135,6 +144,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const toggleTheme = () => {
     setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
   };
+
+  // Store Settings (Puesto de Venta, Nombre, Logo, etc.)
+  const [storeSettings, setStoreSettings] = useState<StoreSettings>(() => {
+    const saved = localStorage.getItem('ai_quickstock_store_settings');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        /* ignore */
+      }
+    }
+    return {
+      name: 'AI QuickStock Store',
+      logoUrl: '',
+      taxId: '30-71928391-4',
+      address: 'Av. Comercial 1234',
+      phone: '+54 9 11 4567-8900',
+      email: 'ventas@quickstock.com',
+      ticketHeader: 'TICKET COMPROBANTE NO FISCAL',
+      ticketFooter: '¡Muchas gracias por su compra! Vuelva pronto.'
+    };
+  });
+  const [isStoreSettingsModalOpen, setIsStoreSettingsModalOpen] = useState(false);
+
+  const updateStoreSettings = (newSettings: Partial<StoreSettings>) => {
+    setStoreSettings(prev => {
+      const updated = { ...prev, ...newSettings };
+      localStorage.setItem('ai_quickstock_store_settings', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const openStoreSettingsModal = () => setIsStoreSettingsModalOpen(true);
 
   // Auth (Connected to real database table 'users')
   const [users, setUsers] = useState<User[]>(() => {
@@ -287,7 +329,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsLoadingAuth(true);
     setAuthError(null);
 
-    const newAdminId = `usr-${Date.now()}`;
+    const newAdminId = generateUniqueId('usr');
     const newAdmin: User = {
       id: newAdminId,
       username: data.username.toLowerCase().trim(),
@@ -365,7 +407,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsLoadingAuth(true);
     setAuthError(null);
 
-    const newUserId = `usr-${Date.now()}`;
+    const newUserId = generateUniqueId('usr');
     const newUser: User = {
       id: newUserId,
       username: cleanUsername,
@@ -556,51 +598,96 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // SubGroups
   const [subGroups, setSubGroups] = useState<SubGroup[]>(() => {
     const saved = localStorage.getItem('nexoconta_subgroups');
-    return saved ? JSON.parse(saved) : INITIAL_SUBGROUPS;
+    if (!saved) return ensureUniqueItems(INITIAL_SUBGROUPS, 'sub');
+    try {
+      return ensureUniqueItems(JSON.parse(saved), 'sub');
+    } catch {
+      return ensureUniqueItems(INITIAL_SUBGROUPS, 'sub');
+    }
   });
 
   // Products
   const [products, setProducts] = useState<Product[]>(() => {
     const saved = localStorage.getItem('nexoconta_products');
-    return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
+    if (!saved) return ensureUniqueItems(INITIAL_PRODUCTS, 'prod');
+    try {
+      return ensureUniqueItems(JSON.parse(saved), 'prod');
+    } catch {
+      return ensureUniqueItems(INITIAL_PRODUCTS, 'prod');
+    }
   });
 
   // Suppliers & Invoices
   const [suppliers, setSuppliers] = useState<Supplier[]>(() => {
     const saved = localStorage.getItem('nexoconta_suppliers');
-    return saved ? JSON.parse(saved) : INITIAL_SUPPLIERS;
+    if (!saved) return ensureUniqueItems(INITIAL_SUPPLIERS, 'sup');
+    try {
+      return ensureUniqueItems(JSON.parse(saved), 'sup');
+    } catch {
+      return ensureUniqueItems(INITIAL_SUPPLIERS, 'sup');
+    }
   });
 
   const [supplierInvoices, setSupplierInvoices] = useState<SupplierInvoice[]>(() => {
     const saved = localStorage.getItem('nexoconta_sup_invoices');
-    return saved ? JSON.parse(saved) : INITIAL_SUPPLIER_INVOICES;
+    if (!saved) return ensureUniqueItems(INITIAL_SUPPLIER_INVOICES, 'inv');
+    try {
+      return ensureUniqueItems(JSON.parse(saved), 'inv');
+    } catch {
+      return ensureUniqueItems(INITIAL_SUPPLIER_INVOICES, 'inv');
+    }
   });
 
   const [supplierMovements, setSupplierMovements] = useState<SupplierMovement[]>(() => {
     const saved = localStorage.getItem('nexoconta_sup_movements');
-    return saved ? JSON.parse(saved) : INITIAL_SUPPLIER_MOVEMENTS;
+    if (!saved) return ensureUniqueItems(INITIAL_SUPPLIER_MOVEMENTS, 'sm');
+    try {
+      return ensureUniqueItems(JSON.parse(saved), 'sm');
+    } catch {
+      return ensureUniqueItems(INITIAL_SUPPLIER_MOVEMENTS, 'sm');
+    }
   });
 
   // Customer categories & Customers
   const [customerCategories, setCustomerCategories] = useState<CustomerCategory[]>(() => {
     const saved = localStorage.getItem('nexoconta_categories');
-    return saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
+    if (!saved) return ensureUniqueItems(INITIAL_CATEGORIES, 'cat');
+    try {
+      return ensureUniqueItems(JSON.parse(saved), 'cat');
+    } catch {
+      return ensureUniqueItems(INITIAL_CATEGORIES, 'cat');
+    }
   });
 
   const [customers, setCustomers] = useState<Customer[]>(() => {
     const saved = localStorage.getItem('nexoconta_customers');
-    return saved ? JSON.parse(saved) : INITIAL_CUSTOMERS;
+    if (!saved) return ensureUniqueItems(INITIAL_CUSTOMERS, 'cli');
+    try {
+      return ensureUniqueItems(JSON.parse(saved), 'cli');
+    } catch {
+      return ensureUniqueItems(INITIAL_CUSTOMERS, 'cli');
+    }
   });
 
   const [customerMovements, setCustomerMovements] = useState<CustomerMovement[]>(() => {
     const saved = localStorage.getItem('nexoconta_cust_movements');
-    return saved ? JSON.parse(saved) : INITIAL_CUSTOMER_MOVEMENTS;
+    if (!saved) return ensureUniqueItems(INITIAL_CUSTOMER_MOVEMENTS, 'cm');
+    try {
+      return ensureUniqueItems(JSON.parse(saved), 'cm');
+    } catch {
+      return ensureUniqueItems(INITIAL_CUSTOMER_MOVEMENTS, 'cm');
+    }
   });
 
   // Employees
   const [employees, setEmployees] = useState<Employee[]>(() => {
     const saved = localStorage.getItem('nexoconta_employees');
-    return saved ? JSON.parse(saved) : INITIAL_EMPLOYEES;
+    if (!saved) return ensureUniqueItems(INITIAL_EMPLOYEES, 'emp');
+    try {
+      return ensureUniqueItems(JSON.parse(saved), 'emp');
+    } catch {
+      return ensureUniqueItems(INITIAL_EMPLOYEES, 'emp');
+    }
   });
 
   // Cash & Banks
@@ -611,18 +698,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>(() => {
     const saved = localStorage.getItem('nexoconta_banks');
-    return saved ? JSON.parse(saved) : INITIAL_BANK_ACCOUNTS;
+    if (!saved) return ensureUniqueItems(INITIAL_BANK_ACCOUNTS, 'bank');
+    try {
+      return ensureUniqueItems(JSON.parse(saved), 'bank');
+    } catch {
+      return ensureUniqueItems(INITIAL_BANK_ACCOUNTS, 'bank');
+    }
   });
 
   const [financialMovements, setFinancialMovements] = useState<FinancialMovement[]>(() => {
     const saved = localStorage.getItem('nexoconta_fin_movements');
-    return saved ? JSON.parse(saved) : INITIAL_FINANCIAL_MOVEMENTS;
+    if (!saved) return ensureUniqueItems(INITIAL_FINANCIAL_MOVEMENTS, 'mov');
+    try {
+      return ensureUniqueItems(JSON.parse(saved), 'mov');
+    } catch {
+      return ensureUniqueItems(INITIAL_FINANCIAL_MOVEMENTS, 'mov');
+    }
   });
 
   // Shifts
   const [shifts, setShifts] = useState<Shift[]>(() => {
     const saved = localStorage.getItem('nexoconta_shifts');
-    return saved ? JSON.parse(saved) : INITIAL_SHIFTS;
+    if (!saved) return ensureUniqueItems(INITIAL_SHIFTS, 'shift');
+    try {
+      return ensureUniqueItems(JSON.parse(saved), 'shift');
+    } catch {
+      return ensureUniqueItems(INITIAL_SHIFTS, 'shift');
+    }
   });
 
   const currentShift = shifts.find(s => currentUser && s.userId === currentUser.id && s.status === 'open') || null;
@@ -630,7 +732,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Sales & Cart
   const [sales, setSales] = useState<Sale[]>(() => {
     const saved = localStorage.getItem('nexoconta_sales');
-    return saved ? JSON.parse(saved) : INITIAL_SALES;
+    if (!saved) return ensureUniqueItems(INITIAL_SALES, 'sale');
+    try {
+      return ensureUniqueItems(JSON.parse(saved), 'sale');
+    } catch {
+      return ensureUniqueItems(INITIAL_SALES, 'sale');
+    }
   });
 
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -760,7 +867,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addSubGroup = (data: Omit<SubGroup, 'id' | 'createdAt'>) => {
     const newSubGroup: SubGroup = {
       ...data,
-      id: `sub-${Date.now()}`,
+      id: generateUniqueId('sub'),
       createdAt: new Date().toISOString()
     };
     setSubGroups(prev => [...prev, newSubGroup]);
@@ -797,7 +904,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // --- PRODUCTS CRUD ---
-  const addProduct = (data: Omit<Product, 'id' | 'updatedAt'>) => {
+  const addProduct = (data: Omit<Product, 'id' | 'updatedAt'> & { id?: string }): Product => {
     const subGroup = subGroups.find(sg => sg.id === data.subGroupId);
     const supplier = suppliers.find(s => s.id === data.supplierId);
 
@@ -807,16 +914,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       sellingPrice = data.costPrice * (1 + subGroup.utilityPercentage / 100);
     }
 
+    const uniqueId = data.id || generateUniqueId('prod');
     const newProd: Product = {
       ...data,
       sellingPrice: Math.round(sellingPrice * 100) / 100,
       subGroupName: subGroup ? subGroup.name : data.subGroupName,
       supplierName: supplier ? supplier.name : data.supplierName,
-      id: `prod-${Date.now()}`,
+      id: uniqueId,
       updatedAt: new Date().toISOString()
     };
 
-    setProducts(prev => [newProd, ...prev]);
+    setProducts(prev => {
+      if (prev.some(p => p.id === uniqueId)) {
+        return prev.map(p => p.id === uniqueId ? newProd : p);
+      }
+      return [newProd, ...prev];
+    });
+
+    return newProd;
   };
 
   const updateProduct = (id: string, data: Partial<Product>): { success: boolean; error?: string } => {
@@ -865,22 +980,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deleteProduct = (id: string): boolean => {
     if (!isAdmin) {
-      alert('Solo el Administrador puede eliminar productos del catálogo.');
+      console.warn('Solo el Administrador puede eliminar productos del catálogo.');
       return false;
     }
     setProducts(prev => prev.filter(p => p.id !== id));
+    setCart(prev => prev.filter(item => item.product.id !== id));
     return true;
   };
 
   // --- SUPPLIERS & INVOICE REGISTRATION ---
-  const addSupplier = (data: Omit<Supplier, 'id' | 'createdAt' | 'currentBalance'>) => {
+  const addSupplier = (data: Omit<Supplier, 'id' | 'createdAt' | 'currentBalance'> & { id?: string }): Supplier => {
+    const uniqueId = data.id || generateUniqueId('sup');
     const newSup: Supplier = {
       ...data,
-      id: `sup-${Date.now()}`,
+      id: uniqueId,
       currentBalance: 0,
       createdAt: new Date().toISOString()
     };
-    setSuppliers(prev => [...prev, newSup]);
+    setSuppliers(prev => {
+      if (prev.some(s => s.id === uniqueId)) {
+        return prev.map(s => s.id === uniqueId ? newSup : s);
+      }
+      return [...prev, newSup];
+    });
+    return newSup;
   };
 
   const updateSupplier = (id: string, data: Partial<Supplier>) => {
@@ -901,7 +1024,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // actualiza precio de costo y venta con margen preestablecido del subgrupo,
   // e impacta en caja/banco o en cuenta corriente del proveedor.
   const recordSupplierInvoice = (invoiceData: Omit<SupplierInvoice, 'id'>) => {
-    const invoiceId = `inv-${Date.now()}`;
+    const invoiceId = generateUniqueId('inv');
     const newInvoice: SupplierInvoice = {
       ...invoiceData,
       id: invoiceId
@@ -943,7 +1066,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // Movimiento financiero de egreso
       setFinancialMovements(prev => [
         {
-          id: `mov-${Date.now()}`,
+          id: generateUniqueId('mov'),
           date: invoiceData.date,
           type: 'supplier_payment',
           originType: 'cash',
@@ -966,7 +1089,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       setFinancialMovements(prev => [
         {
-          id: `mov-${Date.now()}`,
+          id: generateUniqueId('mov'),
           date: invoiceData.date,
           type: 'supplier_payment',
           originType: 'bank',
@@ -994,7 +1117,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const currentBal = targetSupplier ? targetSupplier.currentBalance : 0;
       setSupplierMovements(prev => [
         {
-          id: `sm-${Date.now()}`,
+          id: generateUniqueId('sm'),
           supplierId: invoiceData.supplierId,
           date: invoiceData.date,
           type: 'invoice',
@@ -1034,7 +1157,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const ref = `PAGO-SUP-${Date.now().toString().slice(-4)}`;
     setSupplierMovements(prev => [
       {
-        id: `sm-${Date.now()}`,
+        id: generateUniqueId('sm'),
         supplierId,
         date: new Date().toISOString(),
         type: 'payment',
@@ -1048,7 +1171,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setFinancialMovements(prev => [
       {
-        id: `mov-${Date.now()}`,
+        id: generateUniqueId('mov'),
         date: new Date().toISOString(),
         type: 'supplier_payment',
         originType: paymentMethod,
@@ -1068,7 +1191,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addEmployee = (data: Omit<Employee, 'id'>) => {
     const newEmp: Employee = {
       ...data,
-      id: `emp-${Date.now()}`
+      id: generateUniqueId('emp')
     };
     setEmployees(prev => [...prev, newEmp]);
   };
@@ -1090,7 +1213,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addCustomerCategory = (data: Omit<CustomerCategory, 'id'>) => {
     const newCat: CustomerCategory = {
       ...data,
-      id: `cat-${Date.now()}`
+      id: generateUniqueId('cat')
     };
     setCustomerCategories(prev => [...prev, newCat]);
   };
@@ -1112,7 +1235,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addCustomer = (data: Omit<Customer, 'id' | 'createdAt' | 'currentBalance'>) => {
     const newCust: Customer = {
       ...data,
-      id: `cli-${Date.now()}`,
+      id: generateUniqueId('cli'),
       currentBalance: 0,
       createdAt: new Date().toISOString()
     };
@@ -1170,7 +1293,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const ref = `REC-COBRO-${Date.now().toString().slice(-4)}`;
     setCustomerMovements(prev => [
       {
-        id: `cm-${Date.now()}`,
+        id: generateUniqueId('cm'),
         customerId,
         date: new Date().toISOString(),
         type: 'payment',
@@ -1184,7 +1307,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setFinancialMovements(prev => [
       {
-        id: `mov-${Date.now()}`,
+        id: generateUniqueId('mov'),
         date: new Date().toISOString(),
         type: 'customer_payment',
         originType: paymentMethod,
@@ -1204,7 +1327,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addBankAccount = (data: Omit<BankAccount, 'id' | 'createdAt' | 'balance'>, initialBalance: number) => {
     const newBank: BankAccount = {
       ...data,
-      id: `bank-${Date.now()}`,
+      id: generateUniqueId('bank'),
       balance: initialBalance,
       createdAt: new Date().toISOString()
     };
@@ -1296,7 +1419,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const newMov: FinancialMovement = {
       ...data,
-      id: `mov-${Date.now()}`,
+      id: generateUniqueId('mov'),
       date: new Date().toISOString(),
       performedByUserId: currentUser.id,
       performedByUserName: currentUser.name
@@ -1443,7 +1566,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }));
 
     const newSale: Sale = {
-      id: `sale-${Date.now()}`,
+      id: generateUniqueId('sale'),
       ticketNumber,
       date: new Date().toISOString(),
       customerId: customer ? customer.id : undefined,
@@ -1546,7 +1669,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       setCustomerMovements(prev => [
         {
-          id: `cm-${Date.now()}`,
+          id: generateUniqueId('cm'),
           customerId: customer.id,
           date: newSale.date,
           type: 'sale',
@@ -1579,7 +1702,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // --- SHIFTS & CIERRE DE CAJA ---
   const openShift = (initialCash: number) => {
     const newShift: Shift = {
-      id: `shift-${Date.now()}`,
+      id: generateUniqueId('shift'),
       userId: currentUser.id,
       userName: currentUser.name,
       openedAt: new Date().toISOString(),
@@ -1686,7 +1809,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         closeShift,
         isOnlineDb: isSupabaseConfigured,
         theme,
-        toggleTheme
+        toggleTheme,
+        storeSettings,
+        updateStoreSettings,
+        isStoreSettingsModalOpen,
+        setIsStoreSettingsModalOpen,
+        openStoreSettingsModal
       }}
     >
       {children}

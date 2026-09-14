@@ -16,6 +16,7 @@ import { BalanceReport } from './components/BalanceReport';
 import { BackupModule } from './components/BackupModule';
 import { CloseShiftModal } from './components/CloseShiftModal';
 import { SupabaseModal } from './components/SupabaseModal';
+import { StoreSettingsModal } from './components/StoreSettingsModal';
 import { LoginScreen } from './components/LoginScreen';
 
 const AppContent: React.FC = () => {
@@ -103,6 +104,9 @@ const AppContent: React.FC = () => {
         isOpen={isSupabaseModalOpen}
         onClose={() => setIsSupabaseModalOpen(false)}
       />
+
+      {/* Store Branding & Settings Modal */}
+      <StoreSettingsModal />
     </div>
   );
 };

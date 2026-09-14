@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { formatCurrency } from '../utils/exportUtils';
 import { Product, Supplier } from '../types';
+import { generateUniqueId } from '../utils/idUtils';
 
 interface ExtractedInvoiceData {
   supplier?: {
@@ -146,27 +147,15 @@ export const AIInvoiceModal: React.FC<AIInvoiceModalProps> = ({ isOpen, onClose 
 
       if (!targetSupplier) {
         // No existe: Insertar automáticamente en la base de datos de proveedores
-        const newSupId = `sup-${Date.now()}`;
-        const newSupplierObj: Supplier = {
-          id: newSupId,
+        const createdSupplier = addSupplier({
           name: supName,
           taxId: supTaxId,
           phone: rawSupplier.phone || '',
           email: rawSupplier.email || '',
           address: rawSupplier.address || '',
-          currentBalance: 0,
-          createdAt: new Date().toISOString(),
           notes: 'Creado automáticamente mediante IA desde Factura de Compra'
-        };
-        addSupplier({
-          name: newSupplierObj.name,
-          taxId: newSupplierObj.taxId,
-          phone: newSupplierObj.phone,
-          email: newSupplierObj.email,
-          address: newSupplierObj.address,
-          notes: newSupplierObj.notes
         });
-        targetSupplier = newSupplierObj;
+        targetSupplier = createdSupplier;
       }
 
       // 2. PROCESAMIENTO DE ÍTEMS, DESCUENTOS, IVA Y COINCIDENCIA CON ARTÍCULOS REALES
@@ -238,7 +227,7 @@ export const AIInvoiceModal: React.FC<AIInvoiceModalProps> = ({ isOpen, onClose 
           const sellingMargin = defaultSubGroup.utilityPercentage || 35;
           const calculatedSellingPrice = Math.round(computedNetUnitCost * (1 + sellingMargin / 100) * 100) / 100;
 
-          addProduct({
+          const createdProduct = addProduct({
             name: item.description,
             sku: generatedSku,
             subGroupId: defaultSubGroup.id,
@@ -252,7 +241,7 @@ export const AIInvoiceModal: React.FC<AIInvoiceModalProps> = ({ isOpen, onClose 
             description: `Auto-creado desde Factura IA (${extractedData.invoiceNumber || 'S/N'})`
           });
 
-          finalProductId = `prod-auto-${Date.now()}`;
+          finalProductId = createdProduct.id;
         }
 
         finalInvoiceItems.push({

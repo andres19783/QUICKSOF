@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useApp } from '../context/AppContext';
 import { Product, Customer, Sale } from '../types';
 import { formatCurrency, printHtmlDocument } from '../utils/exportUtils';
+import { soundEngine } from '../utils/audioUtils';
+import { CameraBarcodeScannerModal } from './CameraBarcodeScannerModal';
 import { 
   ShoppingCart, 
   Search, 
@@ -17,7 +19,13 @@ import {
   Tag, 
   X,
   Receipt,
-  Landmark
+  Landmark,
+  Store,
+  Barcode,
+  Camera,
+  Zap,
+  Sparkles,
+  CheckCircle2
 } from 'lucide-react';
 
 export const POSModule: React.FC = () => {
@@ -34,7 +42,9 @@ export const POSModule: React.FC = () => {
     clearCart, 
     processSale, 
     currentShift,
-    currentUser
+    currentUser,
+    storeSettings,
+    openStoreSettingsModal
   } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -46,6 +56,142 @@ export const POSModule: React.FC = () => {
   const [lastSale, setLastSale] = useState<Sale | null>(null);
   const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
   const [posError, setPosError] = useState<string | null>(null);
+
+  // Barcode & Camera Scanner State
+  const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
+  const [barcodeInput, setBarcodeInput] = useState('');
+  const [scanToast, setScanToast] = useState<{
+    type: 'success' | 'error';
+    text: string;
+    code?: string;
+  } | null>(null);
+
+  const barcodeInputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-dismiss scan notification toast
+  useEffect(() => {
+    if (!scanToast) return;
+    const timer = setTimeout(() => {
+      setScanToast(null);
+    }, 3200);
+    return () => clearTimeout(timer);
+  }, [scanToast]);
+
+  // Global F2 keyboard shortcut to focus barcode scanner input
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'F2') {
+        e.preventDefault();
+        barcodeInputRef.current?.focus();
+        barcodeInputRef.current?.select();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Barcode search & cart insertion engine
+  const handleProcessBarcode = useCallback((codeOrQuery: string, multiplier: number = 1): { 
+    success: boolean; 
+    message: string; 
+    productName?: string 
+  } => {
+    const clean = codeOrQuery.trim();
+    if (!clean) return { success: false, message: 'Código vacío' };
+
+    // Check if user or cashier typed multiplier like "3*7791234" or "3x7791234"
+    let qty = multiplier;
+    let targetCode = clean;
+    const multMatch = clean.match(/^(\d+)\s*[*xX]\s*(.+)$/);
+    if (multMatch) {
+      qty = parseInt(multMatch[1], 10) || 1;
+      targetCode = multMatch[2].trim();
+    }
+
+    // Look for exact match by barcode or SKU
+    let matchedProduct = products.find(p => 
+      (p.barcode && p.barcode.toLowerCase() === targetCode.toLowerCase()) ||
+      (p.sku && p.sku.toLowerCase() === targetCode.toLowerCase())
+    );
+
+    // Fallback search ignoring spaces/dashes
+    if (!matchedProduct) {
+      const sanitized = targetCode.replace(/[\s-]+/g, '').toLowerCase();
+      matchedProduct = products.find(p =>
+        (p.barcode && p.barcode.replace(/[\s-]+/g, '').toLowerCase() === sanitized) ||
+        (p.sku && p.sku.replace(/[\s-]+/g, '').toLowerCase() === sanitized)
+      );
+    }
+
+    // Fallback: if single word and matches exactly one product name
+    if (!matchedProduct && targetCode.length >= 3) {
+      const nameMatches = products.filter(p => p.name.toLowerCase().includes(targetCode.toLowerCase()));
+      if (nameMatches.length === 1) {
+        matchedProduct = nameMatches[0];
+      }
+    }
+
+    if (!matchedProduct) {
+      soundEngine.playErrorBeep();
+      setScanToast({
+        type: 'error',
+        text: `Código no encontrado: "${targetCode}"`,
+        code: targetCode
+      });
+      return {
+        success: false,
+        message: `No se encontró ningún artículo con código: ${targetCode}`
+      };
+    }
+
+    // Check stock availability
+    if (matchedProduct.stock <= 0) {
+      soundEngine.playErrorBeep();
+      setScanToast({
+        type: 'error',
+        text: `Sin stock: "${matchedProduct.name}" (Disponible: 0)`,
+        code: targetCode
+      });
+      return {
+        success: false,
+        productName: matchedProduct.name,
+        message: `Artículo agotado sin stock: ${matchedProduct.name}`
+      };
+    }
+
+    // Add to cart N times
+    for (let i = 0; i < qty; i++) {
+      addToCart(matchedProduct);
+    }
+
+    soundEngine.playSuccessBeep();
+    setScanToast({
+      type: 'success',
+      text: `+${qty} ${matchedProduct.name} (${formatCurrency(matchedProduct.sellingPrice * qty)})`,
+      code: matchedProduct.barcode || matchedProduct.sku
+    });
+
+    return {
+      success: true,
+      productName: matchedProduct.name,
+      message: `Agregado al ticket: ${qty}x ${matchedProduct.name}`
+    };
+  }, [products, addToCart]);
+
+  // Execute manual scan from the input field
+  const handleExecuteBarcodeScan = () => {
+    if (!barcodeInput.trim()) return;
+    handleProcessBarcode(barcodeInput);
+    setBarcodeInput('');
+    barcodeInputRef.current?.focus();
+  };
+
+  const handleBarcodeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleExecuteBarcodeScan();
+    }
+  };
 
   // Selected customer & discount computation
   const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
@@ -89,13 +235,19 @@ export const POSModule: React.FC = () => {
 
   // Print Ticket
   const handlePrintTicket = (sale: Sale) => {
+    const logoHtml = storeSettings.logoUrl
+      ? `<div style="text-align: center; margin-bottom: 8px;"><img src="${storeSettings.logoUrl}" alt="Logo" style="max-height: 60px; max-width: 140px; object-fit: contain; display: inline-block;" /></div>`
+      : '';
+
     const html = `
       <div style="font-family: monospace; font-size: 13px; max-width: 320px; margin: 0 auto; line-height: 1.4;">
         <div style="text-align: center; border-bottom: 1px dashed #000; padding-bottom: 10px; margin-bottom: 10px;">
-          <h2 style="margin: 0; font-size: 18px;">AI QUICKSTOCK STORE</h2>
-          <p style="margin: 3px 0;">SISTEMA DE GESTIÓN CONTABLE, INVENTARIOS & CRM</p>
-          <p style="margin: 3px 0;">CUIT: 30-71928391-4 &bull; IVA RESPONSABLE</p>
-          <p style="margin: 3px 0;">TICKET COMPROBANTE NO FISCAL</p>
+          ${logoHtml}
+          <h2 style="margin: 0; font-size: 18px; text-transform: uppercase;">${storeSettings.name}</h2>
+          ${storeSettings.address ? `<p style="margin: 2px 0; font-size: 11px;">${storeSettings.address}</p>` : ''}
+          ${storeSettings.phone ? `<p style="margin: 2px 0; font-size: 11px;">Tel: ${storeSettings.phone}</p>` : ''}
+          ${storeSettings.taxId ? `<p style="margin: 2px 0; font-size: 11px;">CUIT: ${storeSettings.taxId} &bull; IVA RESPONSABLE</p>` : ''}
+          <p style="margin: 4px 0 2px 0; font-size: 10px; font-weight: bold;">${storeSettings.ticketHeader || 'TICKET COMPROBANTE NO FISCAL'}</p>
         </div>
 
         <div style="margin-bottom: 10px; font-size: 12px;">
@@ -149,8 +301,8 @@ export const POSModule: React.FC = () => {
             <span>${formatCurrency(sale.totalAmount)}</span>
           </div>
           <p style="font-size: 10px; text-align: center; margin: 10px 0 0 0;">
-            Precios finales finales sin discriminación de IVA.<br/>
-            ¡Gracias por su compra!
+            Precios finales sin discriminación de IVA.<br/>
+            ${storeSettings.ticketFooter || '¡Gracias por su compra! Vuelva pronto.'}
           </p>
         </div>
       </div>
@@ -184,31 +336,127 @@ export const POSModule: React.FC = () => {
 
       {/* Main POS Interface (Catalog Left 7 cols, Cart Right 5 cols) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left: Product Catalog */}
+        {/* Left: Product Catalog & Quick Barcode Scanner */}
         <div className="lg:col-span-7 space-y-4">
           <div className="bg-[#16161A] p-4 rounded-xl border border-[#27272A] space-y-3">
-            <div className="flex items-center gap-3">
+            {/* CARGA RÁPIDA POR CÓDIGO DE BARRAS & CÁMARA */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+              {/* Input para pistola USB / Lector óptico o tipeo rápido */}
               <div className="relative flex-1">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center gap-1 text-emerald-400">
+                  <Barcode className="w-4 h-4" />
+                </div>
+                <input
+                  ref={barcodeInputRef}
+                  type="text"
+                  placeholder="Escanear código de barras o ej: 3*779... [F2]"
+                  value={barcodeInput}
+                  onChange={e => setBarcodeInput(e.target.value)}
+                  onKeyDown={handleBarcodeKeyDown}
+                  className="w-full pl-9 pr-20 py-2.5 bg-[#0A0A0B] border border-emerald-500/40 focus:border-emerald-400 rounded-xl text-xs text-white font-mono placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 transition-all shadow-inner"
+                />
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={handleExecuteBarcodeScan}
+                    className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-400 text-black text-[11px] font-bold rounded-lg transition-colors flex items-center gap-1 shadow-sm"
+                    title="Cargar código de barras al carrito"
+                  >
+                    <span>Cargar</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Botón Escanear con Cámara */}
+              <button
+                type="button"
+                onClick={() => setIsCameraScannerOpen(true)}
+                className="px-3.5 py-2.5 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/40 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-sm shrink-0 active:scale-95 cursor-pointer"
+                title="Abrir lector de código de barras con cámara web o del celular"
+              >
+                <Camera className="w-4 h-4 text-emerald-400" />
+                <span>Escanear con Cámara</span>
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+              </button>
+            </div>
+
+            {/* Scan Feedback Banner / Toast */}
+            {scanToast && (
+              <div
+                className={`p-2.5 rounded-xl border text-xs flex items-center justify-between transition-all animate-in fade-in duration-150 ${
+                  scanToast.type === 'success'
+                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                    : 'bg-red-500/15 border-red-500/40 text-red-300'
+                }`}
+              >
+                <div className="flex items-center gap-2 truncate">
+                  {scanToast.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                  )}
+                  <span className="font-semibold truncate">{scanToast.text}</span>
+                </div>
+                {scanToast.code && (
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-black/40 text-zinc-400 shrink-0 ml-2">
+                    {scanToast.code}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Búsqueda tradicional por nombre/SKU & Filtro de Sub-Grupos */}
+            <div className="flex items-center gap-3 pt-2 border-t border-[#27272A]/70">
+              <div className="relative flex-1">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
                 <input
                   type="text"
-                  placeholder="Escanear código de barras o buscar producto..."
+                  placeholder="Filtrar catálogo visual por nombre, SKU..."
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 bg-[#0A0A0B] border border-[#27272A] rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && filteredProducts.length === 1) {
+                      addToCart(filteredProducts[0]);
+                      soundEngine.playSuccessBeep();
+                      setSearchTerm('');
+                    }
+                  }}
+                  className="w-full pl-8 pr-3 py-1.5 bg-[#0A0A0B] border border-[#27272A] rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
                 />
               </div>
 
               <select
                 value={selectedSubGroup}
                 onChange={e => setSelectedSubGroup(e.target.value)}
-                className="px-3 py-2 bg-[#0A0A0B] border border-[#27272A] rounded-xl text-xs text-zinc-200 focus:outline-none focus:border-emerald-500"
+                className="px-3 py-1.5 bg-[#0A0A0B] border border-[#27272A] rounded-xl text-xs text-zinc-200 focus:outline-none focus:border-emerald-500"
               >
                 <option value="all">Todos los Sub-Grupos</option>
                 {subGroups.map(sg => (
                   <option key={sg.id} value={sg.id}>{sg.name}</option>
                 ))}
               </select>
+
+              <button
+                type="button"
+                onClick={openStoreSettingsModal}
+                className="px-3 py-1.5 bg-[#0A0A0B] hover:bg-[#1F1F23] border border-[#27272A] hover:border-emerald-500/40 rounded-xl text-xs text-zinc-300 flex items-center gap-1.5 transition-colors shrink-0"
+                title="Configurar Logo y Nombre del Puesto de Venta para los Tickets"
+              >
+                {storeSettings.logoUrl ? (
+                  <img
+                    src={storeSettings.logoUrl}
+                    alt="Logo"
+                    className="w-4 h-4 rounded object-contain"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <Store className="w-3.5 h-3.5 text-emerald-400" />
+                )}
+                <span className="max-w-[110px] truncate font-medium hidden sm:inline">{storeSettings.name}</span>
+              </button>
             </div>
           </div>
 
@@ -535,7 +783,20 @@ export const POSModule: React.FC = () => {
             <div className="p-5 space-y-4">
               <div className="bg-[#0A0A0B] p-4 rounded-xl border border-zinc-800 font-mono text-xs space-y-2">
                 <div className="text-center pb-2 border-b border-zinc-800">
-                  <p className="font-bold text-white text-sm">AI QUICKSTOCK STORE</p>
+                  {storeSettings.logoUrl && (
+                    <div className="flex justify-center mb-1.5">
+                      <img
+                        src={storeSettings.logoUrl}
+                        alt="Logo"
+                        className="max-h-10 max-w-[110px] object-contain"
+                        referrerPolicy="no-referrer"
+                      />
+                    </div>
+                  )}
+                  <p className="font-bold text-white text-sm uppercase tracking-tight">{storeSettings.name}</p>
+                  {storeSettings.taxId && (
+                    <p className="text-[10px] text-zinc-400">CUIT: {storeSettings.taxId}</p>
+                  )}
                   <p className="text-[10px] text-zinc-500">{lastSale.ticketNumber}</p>
                 </div>
 
@@ -583,10 +844,29 @@ export const POSModule: React.FC = () => {
                   Cerrar
                 </button>
               </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsTicketModalOpen(false);
+                  openStoreSettingsModal();
+                }}
+                className="w-full py-1.5 bg-[#0A0A0B] hover:bg-[#121215] text-zinc-400 hover:text-zinc-200 text-[11px] rounded-xl border border-zinc-800 flex items-center justify-center gap-1.5 transition-colors"
+              >
+                <Store className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Personalizar Logo o Nombre del Puesto</span>
+              </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Modal de Escáner con Cámara Web / Celular */}
+      <CameraBarcodeScannerModal
+        isOpen={isCameraScannerOpen}
+        onClose={() => setIsCameraScannerOpen(false)}
+        onBarcodeScanned={handleProcessBarcode}
+      />
     </div>
   );
 };

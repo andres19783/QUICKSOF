@@ -1,7 +1,9 @@
 {
   "name": "AI  QuickStock          (Contable, Inventario & CRM)",
-  "description": "Sistema completo de gestión contable, inventario con márgenes y subgrupos, CRM de clientes y proveedores con cuenta corriente, empleados, caja y bancos, punto de venta y balances financieros.",
-  "requestFramePermissions": [],
+  "description": "Sistema integral de gestión contable, inventario con subgrupos, listas de precios por categoría de cliente en catálogo y tabla con exportación PDF, CRM de clientes y proveedores, empleados, caja y balances financieros.",
+  "requestFramePermissions": [
+    "camera"
+  ],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]

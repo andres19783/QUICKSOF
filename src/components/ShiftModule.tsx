@@ -31,7 +31,8 @@ export const ShiftModule: React.FC<ShiftModuleProps> = ({ onOpenCloseShiftModal 
     currentUser, 
     cashRegister,
     isAdmin,
-    wipeAllDatabaseRecords
+    wipeAllDatabaseRecords,
+    storeSettings
   } = useApp();
 
   const [initialCashInput, setInitialCashInput] = useState<number>(cashRegister.balance || 50000);
@@ -79,10 +80,17 @@ export const ShiftModule: React.FC<ShiftModuleProps> = ({ onOpenCloseShiftModal 
 
   const handlePrintShiftReport = (s: Shift) => {
     const difference = (s.actualCash ?? s.expectedCash) - s.expectedCash;
+    const logoHtml = storeSettings.logoUrl
+      ? `<div style="text-align: center; margin-bottom: 6px;"><img src="${storeSettings.logoUrl}" alt="Logo" style="max-height: 50px; max-width: 120px; object-fit: contain; display: inline-block;" /></div>`
+      : '';
+
     const html = `
       <div style="font-family: monospace; font-size: 13px; max-width: 450px; margin: 0 auto; line-height: 1.4;">
         <div style="text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 10px;">
-          <h2 style="margin: 0; font-size: 18px;">ARQUEO Y CIERRE DE CAJA</h2>
+          ${logoHtml}
+          <h3 style="margin: 0; font-size: 16px; text-transform: uppercase;">${storeSettings.name}</h3>
+          ${storeSettings.taxId ? `<p style="margin: 2px 0; font-size: 11px;">CUIT: ${storeSettings.taxId}</p>` : ''}
+          <h2 style="margin: 6px 0 2px 0; font-size: 18px;">ARQUEO Y CIERRE DE CAJA</h2>
           <p style="margin: 3px 0;">TURNO ID: ${s.id}</p>
           <p style="margin: 3px 0;">ESTADO: ${s.status.toUpperCase()}</p>
         </div>
